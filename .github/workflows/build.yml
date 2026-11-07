@@ -1,0 +1,166 @@
+name: Build NONO
+
+# Builds the NONO Android app and the live admin dashboard from the private
+# Jamesodigie/NoNo repo, then publishes them back to it:
+#   - APK  -> NoNo "apk-latest" branch and the website download (www.nono.com.ng)
+#   - admin dashboard -> NoNo "admin-site" branch (admin.nono.com.ng)
+# The app code never lives here. Runs only when started by hand (Actions tab ->
+# Build NONO -> Run workflow) or by the NONO team; no pull-request triggers, so
+# the token secret is never exposed to outside code.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "NoNo branch or commit to build"
+        default: "ccr-bf467abb-fp03n3"
+        required: true
+      publish:
+        description: "Publish the APK to the website and the dashboard to admin.nono.com.ng"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nono-build
+  cancel-in-progress: true
+
+env:
+  SUPABASE_URL: https://jjqodqjlaqmqofcakrij.supabase.co
+  SUPABASE_ANON_KEY: sb_publishable_3Qqo0XWUulGr_jn918nrEA_WxBne_td
+  FLUTTER_VERSION: 3.47.9
+
+jobs:
+  app:
+    name: Android app
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the NONO code
+        uses: actions/checkout@v7
+        with:
+          repository: Jamesodigie/NoNo
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.NONO_REPO_TOKEN }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: Make room (disk and memory)
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
+            /usr/local/lib/node_modules /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/local/share/chromium \
+            /opt/microsoft /opt/google/chrome /usr/lib/jvm/temurin-8* /usr/lib/jvm/temurin-11* 2>/dev/null || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          sudo swapoff -a || true
+          sudo fallocate -l 4G /nono-swap && sudo chmod 600 /nono-swap && sudo mkswap /nono-swap >/dev/null && sudo swapon /nono-swap
+
+      - name: Build release APK
+        run: |
+          flutter build apk --release --target-platform android-arm,android-arm64 \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+          cp build/app/outputs/flutter-apk/app-release.apk NONO.apk
+
+      - name: Check the APK
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify NONO.apk
+          "$BT/aapt2" dump badging NONO.apk | grep -q "minSdkVersion:'24'"
+          ls -l NONO.apk
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: NONO-apk
+          path: NONO.apk
+          retention-days: 7
+
+  admin:
+    name: Admin dashboard
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the NONO code
+        uses: actions/checkout@v7
+        with:
+          repository: Jamesodigie/NoNo
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.NONO_REPO_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - name: Build live admin dashboard
+        run: |
+          flutter build web -t lib/admin/main_admin.dart --release --no-web-resources-cdn --base-href / \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            -o build/admin_live
+      - name: Publish to admin.nono.com.ng (NoNo admin-site branch)
+        if: inputs.publish
+        env:
+          TOKEN: ${{ secrets.NONO_REPO_TOKEN }}
+        run: |
+          cd build/admin_live
+          printf '{\n  "name": "nono-admin",\n  "compatibility_date": "2026-10-01",\n  "assets": { "directory": "./", "not_found_handling": "single-page-application" }\n}\n' > wrangler.jsonc
+          printf 'wrangler.jsonc\n.assetsignore\n' > .assetsignore
+          git init -q -b admin-site
+          git config user.name "Jamesodigie"
+          git config user.email "137063508+Jamesodigie@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Live admin console (builder run ${GITHUB_RUN_NUMBER})"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/Jamesodigie/NoNo.git" admin-site
+
+  publish:
+    name: Publish APK
+    if: inputs.publish
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: NONO-apk
+      - name: Save to apk-latest and the website
+        env:
+          TOKEN: ${{ secrets.NONO_REPO_TOKEN }}
+        run: |
+          BUILD=$((200 + GITHUB_RUN_NUMBER))
+          unzip -l NONO.apk | grep -q AndroidManifest.xml
+          REPO="https://x-access-token:${TOKEN}@github.com/Jamesodigie/NoNo.git"
+
+          mkdir apk && cp NONO.apk apk/ && cd apk
+          echo "NONO test build ${BUILD} from ${{ inputs.ref }}" > BUILD.txt
+          git init -q -b apk-latest
+          git config user.name "Jamesodigie"
+          git config user.email "137063508+Jamesodigie@users.noreply.github.com"
+          git add -A
+          git commit -q -m "NONO test build ${BUILD}"
+          git push -q -f "$REPO" apk-latest
+          cd ..
+
+          git clone -q --depth 1 --branch website "$REPO" site
+          cd site
+          cp ../NONO.apk download/nono.apk
+          sed -i "s/nono.apk?v=[0-9]*/nono.apk?v=${BUILD}/g" *.html
+          git config user.name "Jamesodigie"
+          git config user.email "137063508+Jamesodigie@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Website: app build ${BUILD}"
+          git push -q "$REPO" HEAD:website
+          echo "Published NONO build ${BUILD}"
