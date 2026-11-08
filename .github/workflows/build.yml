@@ -84,7 +84,8 @@ jobs:
       - name: Build release APK
         run: |
           for attempt in 1 2 3 4; do
-            if flutter build apk --release --target-platform android-arm,android-arm64 \
+            # A higher version code on every build, so phones always install it as an update.
+            if flutter build apk --release --target-platform android-arm,android-arm64 --build-number=$((1000 + ${{ github.run_number }})) \
                  --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"; then
               break
             fi
