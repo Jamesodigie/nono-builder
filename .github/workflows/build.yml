@@ -132,16 +132,30 @@ jobs:
     if: inputs.publish
     needs: app
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to put the APK on this repo's "app-latest" release
     steps:
       - uses: actions/download-artifact@v8
         with:
           name: NONO-apk
-      - name: Save to apk-latest and the website
+      - name: Put the APK on GitHub Releases (not on Vercel)
         env:
-          TOKEN: ${{ secrets.NONO_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           BUILD=$((200 + GITHUB_RUN_NUMBER))
           unzip -l NONO.apk | grep -q AndroidManifest.xml
+          cp NONO.apk nono.apk
+          # One stable download link: .../releases/download/app-latest/nono.apk
+          gh release delete app-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag -y >/dev/null 2>&1 || true
+          gh release create app-latest nono.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "NONO for Android (build ${BUILD})" --latest \
+            --notes "NONO Android app, build ${BUILD}, from ${{ inputs.ref }}. Download: nono.apk"
+          echo "BUILD=${BUILD}" >> "$GITHUB_ENV"
+
+      - name: Save to apk-latest and point the website at the new build
+        env:
+          TOKEN: ${{ secrets.NONO_REPO_TOKEN }}
+        run: |
           REPO="https://x-access-token:${TOKEN}@github.com/Jamesodigie/NoNo.git"
 
           mkdir apk && cp NONO.apk apk/ && cd apk
@@ -154,13 +168,28 @@ jobs:
           git push -q -f "$REPO" apk-latest
           cd ..
 
+          # The website only links to the release; the 100 MB file is no longer
+          # copied into every Vercel deployment.
           git clone -q --depth 1 --branch website "$REPO" site
           cd site
-          cp ../NONO.apk download/nono.apk
-          sed -i "s/nono.apk?v=[0-9]*/nono.apk?v=${BUILD}/g" *.html
+          git rm -q --ignore-unmatch download/nono.apk
+          # Old links (download/nono.apk?v=...) now go to the GitHub release.
+          python3 - <<'PY'
+          import json, os
+          p = "vercel.json"
+          cfg = json.load(open(p)) if os.path.exists(p) else {}
+          cfg["cleanUrls"] = True
+          cfg["headers"] = [h for h in cfg.get("headers", []) if h.get("source") != "/download/(.*)"]
+          url = "https://github.com/Jamesodigie/nono-builder/releases/download/app-latest/nono.apk"
+          redirects = [r for r in cfg.get("redirects", []) if not r.get("source", "").startswith("/download/nono")]
+          redirects.append({"source": "/download/nono.apk", "destination": url, "permanent": False})
+          cfg["redirects"] = redirects
+          json.dump(cfg, open(p, "w"), indent=2)
+          PY
+          sed -i -E "s#nono\.apk\?v=[0-9]+#nono.apk?v=${BUILD}#g" *.html
           git config user.name "Jamesodigie"
           git config user.email "137063508+Jamesodigie@users.noreply.github.com"
           git add -A
-          git commit -q -m "Website: app build ${BUILD}"
+          git diff --cached --quiet || git commit -q -m "Website: app build ${BUILD}"
           git push -q "$REPO" HEAD:website
           echo "Published NONO build ${BUILD}"
