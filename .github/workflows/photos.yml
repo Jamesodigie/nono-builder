@@ -1,0 +1,27 @@
+name: photos
+on:
+  workflow_dispatch:
+    inputs:
+      mode: {description: "sheet or export", required: true, default: sheet}
+      queries: {description: "Search queries separated by |", required: false, default: ""}
+      picks: {description: "name=photoId, comma separated", required: false, default: ""}
+permissions:
+  contents: write
+jobs:
+  photos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install pillow
+      - name: Run
+        env:
+          QUERIES: ${{ inputs.queries }}
+          PICKS: ${{ inputs.picks }}
+        run: python3 scripts/photos.py "${{ inputs.mode }}"
+      - name: Save to photo-cache branch
+        run: |
+          cd out
+          git init -q -b photo-cache
+          git -c user.name=nono-bot -c user.email=bot@nono.com.ng add -A
+          git -c user.name=nono-bot -c user.email=bot@nono.com.ng commit -qm "photos ${{ inputs.mode }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" photo-cache
