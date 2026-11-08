@@ -1,0 +1,34 @@
+name: Migrate NONO source to NONO-app
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: Copy source history to NONO-app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout existing NONO source
+        uses: actions/checkout@v4
+        with:
+          repository: Jamesodigie/NoNo
+          ref: ccr-bf467abb-fp03n3
+          token: ${{ secrets.NONO_REPO_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Push source history to NONO-app
+        env:
+          TOKEN: ${{ secrets.NONO_REPO_TOKEN }}
+        run: |
+          git config user.name "Jamesodigie"
+          git config user.email "137063508+Jamesodigie@users.noreply.github.com"
+          git remote add destination "https://x-access-token:${TOKEN}@github.com/Jamesodigie/NONO-app.git"
+          # Preserve the original default-branch history in the new source repository.
+          git push --force destination HEAD:refs/heads/main
+          # Preserve the pending build-hardening work as a separate review branch.
+          git fetch origin pull/19/head:refs/heads/chore/reliable-android-build-and-apk-storage
+          git push --force destination refs/heads/chore/reliable-android-build-and-apk-storage:refs/heads/chore/reliable-android-build-and-apk-storage
