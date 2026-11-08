@@ -1,7 +1,7 @@
 name: Build NONO
 
 # Builds the NONO Android app and the live admin dashboard from the private
-# Jamesodigie/NoNo repo, then publishes them back to it:
+# Jamesodigie/NONO-app repo, then publishes them back to it:
 #   - APK  -> NoNo "apk-latest" branch and the website download (www.nono.com.ng)
 #   - admin dashboard -> NoNo "admin-site" branch (admin.nono.com.ng)
 # The app code never lives here. Runs only when started by hand (Actions tab ->
@@ -12,8 +12,8 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "NoNo branch or commit to build"
-        default: "ccr-bf467abb-fp03n3"
+        description: "NONO-app branch or commit to build"
+        default: "main"
         required: true
       publish:
         description: "Publish the APK to the website and the dashboard to admin.nono.com.ng"
@@ -41,7 +41,7 @@ jobs:
       - name: Get the NONO code
         uses: actions/checkout@v7
         with:
-          repository: Jamesodigie/NoNo
+          repository: Jamesodigie/NONO-app
           ref: ${{ inputs.ref }}
           token: ${{ secrets.NONO_REPO_TOKEN }}
           persist-credentials: false
@@ -115,7 +115,7 @@ jobs:
       - name: Get the NONO code
         uses: actions/checkout@v7
         with:
-          repository: Jamesodigie/NoNo
+          repository: Jamesodigie/NONO-app
           ref: ${{ inputs.ref }}
           token: ${{ secrets.NONO_REPO_TOKEN }}
           persist-credentials: false
