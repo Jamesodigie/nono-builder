@@ -70,10 +70,28 @@ jobs:
           sudo swapoff -a || true
           sudo fallocate -l 4G /nono-swap && sudo chmod 600 /nono-swap && sudo mkswap /nono-swap >/dev/null && sudo swapon /nono-swap
 
+      # Keep the Gradle download between builds, so a slow GitHub download
+      # server cannot stop a release.
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android/gradle/wrapper/gradle-wrapper.properties', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
       - name: Build release APK
         run: |
-          flutter build apk --release --target-platform android-arm,android-arm64 \
-            --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+          for attempt in 1 2 3 4; do
+            if flutter build apk --release --target-platform android-arm,android-arm64 \
+                 --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"; then
+              break
+            fi
+            if [ "$attempt" = 4 ]; then exit 1; fi
+            echo "Build attempt $attempt failed; waiting before retrying (often a Gradle download timeout)."
+            sleep $((attempt * 45))
+          done
           cp build/app/outputs/flutter-apk/app-release.apk NONO.apk
 
       - name: Check the APK
