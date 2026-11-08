@@ -17,7 +17,7 @@ jobs:
         env:
           QUERIES: ${{ inputs.queries }}
           PICKS: ${{ inputs.picks }}
-        run: python3 scripts/photos.py "${{ inputs.mode }}"
+        run: python3 scripts/photos.py
       - name: Save to photo-cache branch
         run: |
           cd out
