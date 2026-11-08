@@ -178,6 +178,9 @@ jobs:
 
           mkdir apk && cp NONO.apk apk/ && cd apk
           echo "NONO test build ${BUILD} from ${{ inputs.ref }}" > BUILD.txt
+          # This branch only holds the APK. Without this, every build made all
+          # three Vercel projects store another 100 MB copy of it.
+          echo '{"git":{"deploymentEnabled":false}}' > vercel.json
           git init -q -b apk-latest
           git config user.name "Jamesodigie"
           git config user.email "137063508+Jamesodigie@users.noreply.github.com"
