@@ -164,11 +164,27 @@ jobs:
           BUILD=$((200 + GITHUB_RUN_NUMBER))
           unzip -l NONO.apk | grep -q AndroidManifest.xml
           cp NONO.apk nono.apk
-          # One stable download link: .../releases/download/app-latest/nono.apk
-          gh release delete app-latest --repo "$GITHUB_REPOSITORY" --cleanup-tag -y >/dev/null 2>&1 || true
-          gh release create app-latest nono.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "NONO for Android (build ${BUILD})" --latest \
-            --notes "NONO Android app, build ${BUILD}, from ${{ inputs.ref }}. Download: nono.apk"
+          cp NONO.apk "nono-${BUILD}.apk"
+          SUM=$(sha256sum nono.apk | cut -d' ' -f1)
+          SIZE=$(du -m nono.apk | cut -f1)
+          NOTES="NONO Android app, build ${BUILD} (${SIZE} MB), from ${{ inputs.ref }}. SHA-256: ${SUM}"
+          # Never delete the release first: a phone downloading during the swap
+          # would save an error page as nono.apk ("package appears to be invalid").
+          # Each build adds its own nono-<build>.apk (the website links that one)
+          # and then replaces nono.apk for older links.
+          if gh release view app-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload app-latest "nono-${BUILD}.apk" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload app-latest nono.apk --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit app-latest --repo "$GITHUB_REPOSITORY" --title "NONO for Android (build ${BUILD})" --notes "$NOTES" --latest
+          else
+            gh release create app-latest nono.apk "nono-${BUILD}.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "NONO for Android (build ${BUILD})" --latest --notes "$NOTES"
+          fi
+          # Keep the three newest numbered builds.
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/app-latest" --jq '.assets[] | select(.name | test("^nono-[0-9]+\\.apk$")) | "\(.id) \(.name)"' \
+            | sort -t- -k2 -n -r | tail -n +4 | while read -r id name; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "removed old $name"
+            done
           echo "BUILD=${BUILD}" >> "$GITHUB_ENV"
 
       - name: Save to apk-latest and point the website at the new build
@@ -202,7 +218,7 @@ jobs:
           cfg = json.load(open(p)) if os.path.exists(p) else {}
           cfg["cleanUrls"] = True
           cfg["headers"] = [h for h in cfg.get("headers", []) if h.get("source") != "/download/(.*)"]
-          url = "https://github.com/Jamesodigie/nono-builder/releases/download/app-latest/nono.apk"
+          url = "https://github.com/Jamesodigie/nono-builder/releases/download/app-latest/nono-" + os.environ["BUILD"] + ".apk"
           redirects = [r for r in cfg.get("redirects", []) if not r.get("source", "").startswith("/download/nono")]
           redirects.append({"source": "/download/nono.apk", "destination": url, "permanent": False})
           cfg["redirects"] = redirects
