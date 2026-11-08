@@ -1,0 +1,51 @@
+name: App screenshots
+
+# Renders NONO screens from NONO-app with sample data (test/visual) and saves
+# the PNGs to this repo's "screens" branch, so designs can be reviewed without
+# installing the app. Builds nothing and publishes nothing else.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "NONO-app branch or commit"
+        default: "main"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: 3.47.9
+
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: Jamesodigie/NONO-app
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.NONO_REPO_TOKEN }}
+          persist-credentials: false
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+      - run: flutter pub get
+      - name: Render screens
+        env:
+          NONO_SHOTS: ${{ github.workspace }}/shots
+        run: |
+          mkdir -p shots
+          flutter test test/visual
+          ls -la shots
+      - name: Save to the screens branch
+        run: |
+          cd shots
+          git init -q -b screens
+          git -c user.name=nono-bot -c user.email=bot@nono.com.ng add -A
+          git -c user.name=nono-bot -c user.email=bot@nono.com.ng commit -qm "Screens from ${{ inputs.ref }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" screens
