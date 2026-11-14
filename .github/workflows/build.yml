@@ -19,6 +19,10 @@ on:
         description: "Publish the APK to the website and the dashboard to admin.nono.com.ng"
         type: boolean
         default: true
+      publish_apk:
+        description: "Also publish the Android APK (off = websites only)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -180,7 +184,7 @@ jobs:
 
   publish:
     name: Publish APK
-    if: inputs.publish
+    if: inputs.publish && inputs.publish_apk
     needs: app
     runs-on: ubuntu-latest
     permissions:
