@@ -164,7 +164,8 @@ jobs:
         run: |
           cd build/agent_live
           printf '{\n  "name": "nono-agents",\n  "compatibility_date": "2026-10-01",\n  "assets": { "directory": "./", "not_found_handling": "single-page-application" }\n}\n' > wrangler.jsonc
-          printf 'wrangler.jsonc\n.assetsignore\n' > .assetsignore
+          printf 'wrangler.jsonc\n.assetsignore\nvercel.json\n' > .assetsignore
+          printf '{\n  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]\n}\n' > vercel.json
           git init -q -b agents-site
           git config user.name "Jamesodigie"
           git config user.email "137063508+Jamesodigie@users.noreply.github.com"
