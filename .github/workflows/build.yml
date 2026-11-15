@@ -139,39 +139,24 @@ jobs:
           flutter build web -t lib/admin/main_admin.dart --release --no-web-resources-cdn --base-href / \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             -o build/admin_live
-      - name: Build NONO Agent app
+      - name: Build Field Agent app (admin.nono.com.ng/field-agent)
         run: |
-          flutter build web -t lib/agent/main_agent.dart --release --no-web-resources-cdn --base-href / \
+          flutter build web -t lib/agent/main_agent.dart --release --no-web-resources-cdn --base-href /field-agent/ \
             --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
-            -o build/agent_live
+            -o build/admin_live/field-agent
           python3 - <<'PY'
           import json, re
-          p = "build/agent_live/manifest.json"
+          p = "build/admin_live/field-agent/manifest.json"
           m = json.load(open(p))
-          m.update(name="NONO Agent", short_name="NONO Agent", description="NONO Field Agents: referrals, activity and earnings.",
-                   start_url="/", scope="/", id="/")
+          m.update(name="NONO Field Agent", short_name="NONO Agent", description="NONO Field Agents: referrals, activity and earnings.",
+                   start_url="/field-agent/", scope="/field-agent/", id="/field-agent/")
           json.dump(m, open(p, "w"), indent=2)
-          p = "build/agent_live/index.html"
+          p = "build/admin_live/field-agent/index.html"
           h = open(p).read()
-          h = re.sub(r"<title>.*?</title>", "<title>NONO Agent</title>", h, flags=re.S)
+          h = re.sub(r"<title>.*?</title>", "<title>NONO Field Agent</title>", h, flags=re.S)
           h = re.sub(r'(apple-mobile-web-app-title" content=")[^"]*', r"\1NONO Agent", h)
           open(p, "w").write(h)
           PY
-      - name: Publish to agents.nono.com.ng (NoNo agents-site branch)
-        if: inputs.publish
-        env:
-          TOKEN: ${{ secrets.NONO_REPO_TOKEN }}
-        run: |
-          cd build/agent_live
-          printf '{\n  "name": "nono-agents",\n  "compatibility_date": "2026-10-01",\n  "assets": { "directory": "./", "not_found_handling": "single-page-application" }\n}\n' > wrangler.jsonc
-          printf 'wrangler.jsonc\n.assetsignore\nvercel.json\n' > .assetsignore
-          printf '{\n  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]\n}\n' > vercel.json
-          git init -q -b agents-site
-          git config user.name "Jamesodigie"
-          git config user.email "137063508+Jamesodigie@users.noreply.github.com"
-          git add -A
-          git commit -q -m "NONO Agent app (builder run ${GITHUB_RUN_NUMBER})"
-          git push -q -f "https://x-access-token:${TOKEN}@github.com/Jamesodigie/NoNo.git" agents-site
       - name: Publish to admin.nono.com.ng (NoNo admin-site branch)
         if: inputs.publish
         env:
