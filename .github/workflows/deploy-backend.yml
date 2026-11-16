@@ -2,8 +2,10 @@ name: Deploy NONO backend functions
 
 # Deploys NONO's Supabase edge functions from Jamesodigie/NONO-app.
 # Runs here because this repo is public (free build minutes).
-# Database changes are NOT applied here: they are applied through the Supabase
-# connector, because the live migration history uses different version numbers.
+# Database changes are normally applied through the Supabase connector (the live
+# migration history uses different version numbers). For a large migration,
+# "migration" names one file in supabase/migrations/ to run once through the
+# Supabase Management API; it is recorded in the live migration history.
 # Needs repository secrets: NONO_REPO_TOKEN (already set), SUPABASE_ACCESS_TOKEN.
 
 on:
@@ -17,6 +19,9 @@ on:
         default: "psb-wallet psb-webhook psb-reconcile psb-admin group-payouts refresh-blocked-domains"
       remove:
         description: "Functions to delete from Supabase (space separated, optional)"
+        default: ""
+      migration:
+        description: "Migration file name to apply once (optional, e.g. 20261116070000_support_centre.sql)"
         default: ""
 
 permissions:
@@ -48,6 +53,19 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           version: latest
+      - name: Apply migration
+        if: ${{ inputs.migration != '' }}
+        env:
+          MIG: ${{ inputs.migration }}
+        run: |
+          [[ "$MIG" =~ ^[0-9]{14}_[a-z0-9_]+\.sql$ ]] || { echo "bad migration name"; exit 1; }
+          f="supabase/migrations/$MIG"; [ -f "$f" ] || { echo "no such file"; exit 1; }
+          ver="${MIG%%_*}"; name="${MIG#*_}"; name="${name%.sql}"
+          q=$(jq -Rs --arg v "$ver" --arg n "$name" '{query: (. + "\ninsert into supabase_migrations.schema_migrations(version, name) values (\u0027" + $v + "\u0027, \u0027" + $n + "\u0027) on conflict do nothing;")}' "$f")
+          code=$(curl -sS -o out.json -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data "$q")
+          head -c 2000 out.json; echo
+          [ "$code" -lt 300 ] || { echo "::error::migration failed ($code)"; exit 1; }
       - name: Deploy functions
         env:
           FUNCS: ${{ inputs.functions }}
