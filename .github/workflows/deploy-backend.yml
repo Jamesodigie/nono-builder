@@ -14,7 +14,10 @@ on:
         default: main
       functions:
         description: "Functions to deploy (space separated)"
-        default: "providus-wallet providus-webhook providus-reconcile providus-admin vtpass-webhook refresh-blocked-domains"
+        default: "psb-wallet psb-webhook psb-reconcile psb-admin group-payouts refresh-blocked-domains"
+      remove:
+        description: "Functions to delete from Supabase (space separated, optional)"
+        default: ""
 
 permissions:
   contents: read
@@ -52,4 +55,13 @@ jobs:
           for f in $FUNCS; do
             [[ "$f" =~ ^[a-z0-9-]+$ ]] || { echo "bad name $f"; exit 1; }
             supabase functions deploy "$f" --project-ref "$PROJECT_REF" --use-api --yes
+          done
+      - name: Delete retired functions
+        if: ${{ inputs.remove != '' }}
+        env:
+          OLD: ${{ inputs.remove }}
+        run: |
+          for f in $OLD; do
+            [[ "$f" =~ ^[a-z0-9-]+$ ]] || { echo "bad name $f"; exit 1; }
+            supabase functions delete "$f" --project-ref "$PROJECT_REF" --yes || echo "$f was not deployed"
           done
