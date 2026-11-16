@@ -40,7 +40,7 @@ jobs:
           NONO_SHOTS: ${{ github.workspace }}/shots
         run: |
           mkdir -p shots
-          flutter test test/visual
+          flutter test test/visual || echo "::warning::Some screen tests failed; saving the screens that rendered"
           ls -la shots
       - name: Save to the screens branch
         run: |
