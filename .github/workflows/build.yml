@@ -89,7 +89,28 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('app/android/gradle/wrapper/gradle-wrapper.properties', 'android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
+      # Real release key from GitHub secrets. Published builds must use it; the
+      # test key in the app repo is only for unpublished check builds.
+      - name: Load the release signing key
+        env:
+          KEY_B64: ${{ secrets.NONO_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEY_B64" ]; then
+            printf '%s' "$KEY_B64" | base64 -d > "$RUNNER_TEMP/nono-release.jks"
+            echo "NONO_KEYSTORE_PATH=$RUNNER_TEMP/nono-release.jks" >> "$GITHUB_ENV"
+            echo "Release key loaded."
+          elif [ "${{ inputs.publish }}" = "true" ]; then
+            echo "::error::NONO_KEYSTORE_BASE64 is not set. Refusing to publish an app signed with the test key."
+            exit 1
+          else
+            echo "::warning::No release key: this check build uses the test key and must not be published."
+          fi
+
       - name: Build release APK
+        env:
+          NONO_KEYSTORE_PASSWORD: ${{ secrets.NONO_KEYSTORE_PASSWORD }}
+          NONO_KEY_ALIAS: ${{ secrets.NONO_KEY_ALIAS }}
+          NONO_KEY_PASSWORD: ${{ secrets.NONO_KEY_PASSWORD }}
         run: |
           for attempt in 1 2 3 4; do
             # A higher version code on every build, so phones always install it as an update.
@@ -106,7 +127,12 @@ jobs:
       - name: Check the APK
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" verify NONO.apk
+          "$BT/apksigner" verify --print-certs NONO.apk | grep -i "SHA-256"
+          # Published builds must carry the release key, never the test key.
+          if [ "${{ inputs.publish }}" = "true" ]; then
+            "$BT/apksigner" verify --print-certs NONO.apk | grep -qi "ca2a96930522c2112f15520197037419" \
+              || { echo "::error::APK is not signed with the NONO release key"; exit 1; }
+          fi
           "$BT/aapt2" dump badging NONO.apk | grep -q "minSdkVersion:'24'"
           ls -l NONO.apk
 
