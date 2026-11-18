@@ -69,6 +69,12 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Backend unit tests (fees, webhook checks, 9PSB client)
+        run: deno test --allow-env --allow-read supabase/functions/_shared/
+
       - name: Make room (disk and memory)
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /usr/share/swift \
