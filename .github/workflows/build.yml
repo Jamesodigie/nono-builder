@@ -120,7 +120,7 @@ jobs:
         run: |
           for attempt in 1 2 3 4; do
             # A higher version code on every build, so phones always install it as an update.
-            if flutter build apk --release --target-platform android-arm,android-arm64 --build-number=$((1000 + ${{ github.run_number }})) \
+            if flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 --build-number=$((1000 + ${{ github.run_number }})) \
                  --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"; then
               break
             fi
@@ -128,7 +128,9 @@ jobs:
             echo "Build attempt $attempt failed; waiting before retrying (often a Gradle download timeout)."
             sleep $((attempt * 45))
           done
-          cp build/app/outputs/flutter-apk/app-release.apk NONO.apk
+          # One APK per phone type: 64-bit (almost every phone) is NONO.apk, 32-bit is NONO-v7.apk.
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk NONO.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk NONO-v7.apk
 
       - name: Check the APK
         run: |
@@ -140,12 +142,18 @@ jobs:
               || { echo "::error::APK is not signed with the NONO release key"; exit 1; }
           fi
           "$BT/aapt2" dump badging NONO.apk | grep -q "minSdkVersion:'24'"
-          ls -l NONO.apk
+          if [ "${{ inputs.publish }}" = "true" ]; then
+            "$BT/apksigner" verify --print-certs NONO-v7.apk | grep -qi "ca2a96930522c2112f15520197037419" \
+              || { echo "::error::32-bit APK is not signed with the NONO release key"; exit 1; }
+          fi
+          ls -l NONO.apk NONO-v7.apk
 
       - uses: actions/upload-artifact@v7
         with:
           name: NONO-apk
-          path: NONO.apk
+          path: |
+            NONO.apk
+            NONO-v7.apk
           retention-days: 7
 
   admin:
@@ -246,6 +254,9 @@ jobs:
           unzip -l NONO.apk | grep -q AndroidManifest.xml
           cp NONO.apk nono.apk
           cp NONO.apk "nono-${BUILD}.apk"
+          unzip -l NONO-v7.apk | grep -q AndroidManifest.xml
+          cp NONO-v7.apk nono-v7.apk
+          cp NONO-v7.apk "nono-${BUILD}-v7.apk"
           SUM=$(sha256sum nono.apk | cut -d' ' -f1)
           SIZE=$(du -m nono.apk | cut -f1)
           NOTES="NONO Android app, build ${BUILD} (${SIZE} MB), from ${{ inputs.ref }}. SHA-256: ${SUM}"
@@ -255,14 +266,20 @@ jobs:
           # and then replaces nono.apk for older links.
           if gh release view app-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload app-latest "nono-${BUILD}.apk" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload app-latest "nono-${BUILD}-v7.apk" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload app-latest nono-v7.apk --repo "$GITHUB_REPOSITORY" --clobber
             gh release upload app-latest nono.apk --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit app-latest --repo "$GITHUB_REPOSITORY" --title "NONO for Android (build ${BUILD})" --notes "$NOTES" --latest
           else
-            gh release create app-latest nono.apk "nono-${BUILD}.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            gh release create app-latest nono.apk nono-v7.apk "nono-${BUILD}.apk" "nono-${BUILD}-v7.apk" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "NONO for Android (build ${BUILD})" --latest --notes "$NOTES"
           fi
           # Keep the three newest numbered builds.
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/app-latest" --jq '.assets[] | select(.name | test("^nono-[0-9]+\\.apk$")) | "\(.id) \(.name)"' \
+            | sort -t- -k2 -n -r | tail -n +4 | while read -r id name; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "removed old $name"
+            done
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/app-latest" --jq '.assets[] | select(.name | test("^nono-[0-9]+-v7\\.apk$")) | "\(.id) \(.name)"' \
             | sort -t- -k2 -n -r | tail -n +4 | while read -r id name; do
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id" && echo "removed old $name"
             done
@@ -302,10 +319,13 @@ jobs:
           url = "https://github.com/Jamesodigie/nono-builder/releases/download/app-latest/nono-" + os.environ["BUILD"] + ".apk"
           redirects = [r for r in cfg.get("redirects", []) if not r.get("source", "").startswith("/download/nono")]
           redirects.append({"source": "/download/nono.apk", "destination": url, "permanent": False})
+          redirects.append({"source": "/download/nono-v7.apk", "destination": url.replace(".apk", "-v7.apk"), "permanent": False})
           cfg["redirects"] = redirects
           json.dump(cfg, open(p, "w"), indent=2)
           PY
           sed -i -E "s#nono\.apk\?v=[0-9]+#nono.apk?v=${BUILD}#g" *.html
+          # Small link for older 32-bit phones (added once, on the home page).
+          grep -q 'download/nono-v7.apk' index.html || sed -i 's#<p class="hero-note soon">Free to download</p>#<p class="hero-note soon">Free to download \&middot; <a href="download/nono-v7.apk" download>Older phone? Get the 32-bit version</a></p>#' index.html
           git config user.name "Jamesodigie"
           git config user.email "137063508+Jamesodigie@users.noreply.github.com"
           git add -A
