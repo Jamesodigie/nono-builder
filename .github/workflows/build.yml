@@ -306,6 +306,8 @@ jobs:
           json.dump(cfg, open(p, "w"), indent=2)
           PY
           sed -i -E "s#nono\.apk\?v=[0-9]+#nono.apk?v=${BUILD}#g" *.html
+          # One APK for every phone type again: remove the 32-bit link added earlier.
+          sed -i 's# \&middot; <a href="download/nono-v7.apk" download>Older phone? Get the 32-bit version</a>##' index.html
           git config user.name "Jamesodigie"
           git config user.email "137063508+Jamesodigie@users.noreply.github.com"
           git add -A
