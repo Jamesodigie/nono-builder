@@ -121,7 +121,7 @@ jobs:
           for attempt in 1 2 3 4; do
             # A higher version code on every build, so phones always install it as an update.
             if flutter build apk --release --target-platform android-arm,android-arm64 --build-number=$((1000 + ${{ github.run_number }})) \
-                 --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"; then
+                 --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" --dart-define=NONO_BUILD=$((1000 + ${{ github.run_number }})); then
               break
             fi
             if [ "$attempt" = 4 ]; then exit 1; fi
